@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { useRouter } from "next/navigation"
 import { useSearchParams } from "next/navigation"
 import { Button } from "@/components/ui/button"
@@ -15,7 +15,7 @@ import { Loader2, Eye, EyeOff, BookOpen, ArrowLeft } from "lucide-react"
 import { supabase } from "@/lib/supabase"
 import { createStudentProfile, createFacultyProfile } from "@/lib/auth-service";
 
-export default function SignupPage() {
+function SignupForm() {
   const [formData, setFormData] = useState({
     name: "",
     email: "",
@@ -391,4 +391,12 @@ export default function SignupPage() {
       </div>
     </div>
   )
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <SignupForm />
+    </Suspense>
+  );
 }
