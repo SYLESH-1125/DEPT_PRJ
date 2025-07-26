@@ -12,9 +12,8 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Eye, EyeOff, BookOpen, ArrowLeft } from "lucide-react"
-
-// Force dynamic rendering to prevent build-time errors
-export const dynamic = 'force-dynamic'
+import { supabase } from "@/lib/supabase"
+import { createStudentProfile, createFacultyProfile } from "@/lib/auth-service";
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -22,13 +21,17 @@ export default function SignupPage() {
     email: "",
     class: "",
     section: "",
-    username: "", // Added username field
+    username: "",
+    password: "",
+    confirmPassword: "",
   })
   const [userType, setUserType] = useState<"student" | "faculty">("student")
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [error, setError] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [isGoogleUser, setIsGoogleUser] = useState(false)
+  const [authUser, setAuthUser] = useState<any>(null)
 
   const router = useRouter()
   const searchParams = useSearchParams()
@@ -36,37 +39,32 @@ export default function SignupPage() {
   // Check authentication and profile existence on mount
   useEffect(() => {
     const checkAuthAndProfile = async () => {
-      try {
-        // Dynamic import to prevent build-time errors
-        const { supabase } = await import("@/lib/supabase");
-        const { data: { session } } = await supabase.auth.getSession();
-        if (session && session.user) {
-          const userTypeParam = searchParams.get("userType") as "student" | "faculty" | null;
-          const userTypeToCheck = userTypeParam || userType;
-          let profileExists = false;
-          if (userTypeToCheck === "faculty") {
-            const { data: faculty } = await supabase
-              .from("faculty_profiles")
-              .select("id")
-              .eq("email", session.user.email)
-              .single();
-            profileExists = !!faculty;
-          } else {
-            const { data: student } = await supabase
-              .from("student_profiles")
-              .select("id")
-              .eq("email", session.user.email)
-              .single();
-            profileExists = !!student;
-          }
-          if (profileExists) {
-            // Redirect to dashboard
-            router.replace(userTypeToCheck === "faculty" ? "/faculty/dashboard" : "/student/dashboard");
-          }
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session && session.user) {
+        setIsGoogleUser(true);
+        setAuthUser(session.user);
+        const userTypeParam = searchParams.get("userType") as "student" | "faculty" | null;
+        const userTypeToCheck = userTypeParam || userType;
+        let profileExists = false;
+        if (userTypeToCheck === "faculty") {
+          const { data: faculty } = await supabase
+            .from("faculty")
+            .select("id")
+            .eq("email", session.user.email)
+            .single();
+          profileExists = !!faculty;
+        } else {
+          const { data: student } = await supabase
+            .from("students")
+            .select("id")
+            .eq("email", session.user.email)
+            .single();
+          profileExists = !!student;
         }
-      } catch (error) {
-        console.error("Error checking auth and profile:", error);
-        // Continue with signup flow if there's an error
+        if (profileExists) {
+          // Redirect to dashboard
+          router.replace(userTypeToCheck === "faculty" ? "/faculty/dashboard" : "/student/dashboard");
+        }
       }
     };
     checkAuthAndProfile();
@@ -91,48 +89,74 @@ export default function SignupPage() {
     setError("")
     setIsLoading(true)
     try {
-      // Dynamic import to prevent build-time errors
-      const { supabase } = await import("@/lib/supabase");
-      const { createStudentProfile, createFacultyProfile } = await import("@/lib/auth-service");
-      
       if (userType === "student") {
         if (!formData.class || !formData.section || !formData.username || !formData.email || !formData.password) {
           setError("All fields are required for students.")
           setIsLoading(false)
           return
         }
-        // Register with Supabase Auth
-        const { data, error } = await supabase.auth.signUp({
-          email: formData.email,
-          password: formData.password,
-          options: {
-            data: {
-              full_name: formData.name,
-              user_type: 'student',
-              username: formData.username,
-              department: formData.class,
-              section: formData.section,
-            }
+        if (isGoogleUser && authUser) {
+          // Update password for Google user
+          const { error: passwordError } = await supabase.auth.updateUser({
+            password: formData.password
+          });
+          if (passwordError) {
+            setError(passwordError.message);
+            setIsLoading(false);
+            return;
           }
-        });
-        if (error) {
-          setError(error.message);
-          setIsLoading(false);
-          return;
+          
+          // Insert student record directly for Google user
+          const { error: insertError } = await supabase.from("students").insert({
+            id: authUser.id,
+            email: formData.email,
+            full_name: formData.name,
+            department: formData.class,
+            section: formData.section,
+            username: formData.username,
+            created_at: authUser.created_at,
+            updated_at: new Date().toISOString()
+          });
+          if (insertError) {
+            setError(insertError.message);
+            setIsLoading(false);
+            return;
+          }
+          router.push('/student/dashboard');
+        } else {
+          // Register with Supabase Auth
+          const { data, error } = await supabase.auth.signUp({
+            email: formData.email,
+            password: formData.password,
+            options: {
+              data: {
+                full_name: formData.name,
+                user_type: 'student',
+                username: formData.username,
+                department: formData.class,
+                section: formData.section,
+              }
+            }
+          });
+          if (error) {
+            setError(error.message);
+            setIsLoading(false);
+            return;
+          }
+          // Use the create_student_profile RPC function
+          const { error: rpcError } = await supabase.rpc('create_student_profile', {
+            user_email: formData.email,
+            department: formData.class,
+            section: formData.section,
+            username: formData.username,
+          });
+          if (rpcError) {
+            setError(rpcError.message);
+            setIsLoading(false);
+            return;
+          }
+          router.push('/student/dashboard');
         }
-        // Use the create_student_profile RPC function
-        const { error: rpcError } = await supabase.rpc('create_student_profile', {
-          user_email: formData.email,
-          department: formData.class,
-          section: formData.section,
-          username: formData.username,
-        });
-        if (rpcError) {
-          setError(rpcError.message);
-          setIsLoading(false);
-          return;
-        }
-        router.push('/student/dashboard');
       } else {
         if (!formData.department || !formData.section || !formData.username || !formData.email || !formData.password) {
           setError("All fields are required for faculty.");
@@ -238,8 +262,10 @@ export default function SignupPage() {
                       onChange={(e) => handleInputChange("email", e.target.value)}
                       required
                       className="h-11"
+                      disabled={isGoogleUser}
                     />
                   </div>
+                  {/* Password fields for all users */}
                   <div className="space-y-2">
                     <Label htmlFor="password">Password</Label>
                     <div className="relative">

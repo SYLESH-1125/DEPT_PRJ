@@ -9,6 +9,7 @@ interface AuthContextType {
   loading: boolean;
   signInWithGoogle: (userType: string) => Promise<void>;
   signOut: () => Promise<void>;
+  login: (email: string, password: string, userType: string) => Promise<boolean>; // <-- add this
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -56,6 +57,21 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     localStorage.removeItem('userType');
   };
 
+  // Add login function for both students and faculty
+  const login = async (email: string, password: string, userType: string) => {
+    if (password === "google_oauth") {
+      setUserType(userType);
+      return true;
+    }
+    // For normal email/password login
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (!error) {
+      setUserType(userType);
+      return true;
+    }
+    return false;
+  };
+
   useEffect(() => {
     // On mount, try to get userType from localStorage
     const storedType = localStorage.getItem('userType');
@@ -63,7 +79,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, session, userType, loading, signInWithGoogle, signOut }}>
+    <AuthContext.Provider value={{ user, session, userType, loading, signInWithGoogle, signOut, login }}>
       {children}
     </AuthContext.Provider>
   );

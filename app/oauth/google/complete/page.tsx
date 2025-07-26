@@ -6,6 +6,7 @@ import { useAuth } from "@/contexts/auth-context"
 import { handleGoogleCallback } from "@/lib/google-auth"
 import { Card, CardContent } from "@/components/ui/card"
 import { Loader2, CheckCircle, XCircle } from "lucide-react"
+import { supabase } from "@/lib/supabase";
 
 export default function GoogleOAuthComplete() {
   const [status, setStatus] = useState<"loading" | "success" | "error">("loading")
@@ -23,31 +24,102 @@ export default function GoogleOAuthComplete() {
           throw new Error("Invalid user type")
         }
 
-        const googleUser = await handleGoogleCallback(userType)
+        // Get the current session from Supabase Auth
+        const { data: { session }, error: sessionError } = await supabase.auth.getSession()
+        
+        if (sessionError) {
+          throw new Error("Session error: " + sessionError.message)
+        }
 
-        // Simulate login with Google user data
-        const success = await login(googleUser.email, "google_oauth", userType)
+        if (!session?.user) {
+          throw new Error("No user session found")
+        }
 
+        const user = session.user
+        console.log("Google OAuth user:", user)
+
+        // Check if user exists in the appropriate table
+        if (userType === "student") {
+          const { data: existingStudent, error: studentError } = await supabase
+            .from("students")
+            .select("*")
+            .eq("email", user.email)
+            .single();
+
+          if (studentError && studentError.code !== "PGRST116") {
+            // Not a "no rows" error
+            throw new Error("Database error: " + studentError.message)
+          }
+
+          if (!existingStudent) {
+            // Create new student record
+            const { error: insertError } = await supabase.from("students").insert({
+              id: user.id, // Use the Supabase Auth user ID
+              email: user.email,
+              full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Unknown',
+              created_at: user.created_at,
+              updated_at: new Date().toISOString()
+            });
+            
+            if (insertError) {
+              console.error("Insert error:", insertError)
+              throw new Error("Failed to create student record: " + insertError.message)
+            }
+            console.log("Created new student record for:", user.email)
+          } else {
+            console.log("Student already exists:", user.email)
+          }
+        } else if (userType === "faculty") {
+          const { data: existingFaculty, error: facultyError } = await supabase
+            .from("faculty")
+            .select("*")
+            .eq("email", user.email)
+            .single();
+
+          if (facultyError && facultyError.code !== "PGRST116") {
+            throw new Error("Database error: " + facultyError.message)
+          }
+
+          if (!existingFaculty) {
+            // Create new faculty record
+            const { error: insertError } = await supabase.from("faculty").insert({
+              id: user.id, // Use the Supabase Auth user ID
+              email: user.email,
+              full_name: user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || 'Unknown',
+              created_at: user.created_at,
+              updated_at: new Date().toISOString()
+            });
+            
+            if (insertError) {
+              console.error("Insert error:", insertError)
+              throw new Error("Failed to create faculty record: " + insertError.message)
+            }
+            console.log("Created new faculty record for:", user.email)
+          } else {
+            console.log("Faculty already exists:", user.email)
+          }
+        }
+
+        // Set user type and redirect
+        const success = await login(user.email || '', "google_oauth", userType)
         if (success) {
           setStatus("success")
           setMessage("Sign-in successful! Redirecting...")
-
           setTimeout(() => {
             router.push(userType === "student" ? "/student/dashboard" : "/faculty/dashboard")
           }, 1500)
         } else {
           throw new Error("Failed to complete sign-in")
         }
-      } catch (error) {
+      } catch (error: any) {
+        console.error("OAuth completion error:", error)
         setStatus("error")
-        setMessage("Sign-in failed. Redirecting to login...")
-
+        setMessage("Sign-in failed: " + (error?.message || "Unknown error") + ". Redirecting to login...")
         setTimeout(() => {
           router.push("/login")
         }, 2000)
       }
     }
-
     completeOAuth()
   }, [searchParams, login, router])
 

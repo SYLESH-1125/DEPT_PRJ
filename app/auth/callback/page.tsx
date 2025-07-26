@@ -1,7 +1,4 @@
-"use client"
-
-// Force dynamic rendering to prevent build-time errors
-export const dynamic = 'force-dynamic';
+"use client";
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -20,6 +17,7 @@ export default function AuthCallbackPage() {
 
         const userType = localStorage.getItem('userType') || 'student';
         let profile = null;
+        
         if (userType === 'faculty') {
           const { data: facultyProfile } = await supabase
             .from('faculty')
@@ -37,8 +35,14 @@ export default function AuthCallbackPage() {
         }
 
         if (!profile) {
-          // No profile at all: redirect to registration page
-          router.push(`/signup?email=${encodeURIComponent(user.email)}&userType=${userType}`);
+          // Redirect to signup with pre-filled info
+          const name = encodeURIComponent(user.user_metadata?.full_name || user.user_metadata?.name || user.email?.split('@')[0] || '');
+          const email = encodeURIComponent(user.email || '');
+          if (userType === 'faculty') {
+            router.push(`/signup?email=${email}&name=${name}&userType=faculty`);
+          } else {
+            router.push(`/signup?email=${email}&name=${name}`);
+          }
         } else if (
           !profile.department ||
           !profile.section ||
@@ -55,6 +59,7 @@ export default function AuthCallbackPage() {
           }
         }
       } catch (error) {
+        console.error('Auth callback error:', error);
         setError('Authentication failed. Please try again.');
       } finally {
         setLoading(false);
