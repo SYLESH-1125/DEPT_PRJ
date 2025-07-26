@@ -12,8 +12,9 @@ import { Label } from "@/components/ui/label"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Loader2, Eye, EyeOff, BookOpen, ArrowLeft } from "lucide-react"
-import { supabase } from "@/lib/supabase"
-import { createStudentProfile, createFacultyProfile } from "@/lib/auth-service";
+
+// Force dynamic rendering to prevent build-time errors
+export const dynamic = 'force-dynamic'
 
 export default function SignupPage() {
   const [formData, setFormData] = useState({
@@ -35,30 +36,37 @@ export default function SignupPage() {
   // Check authentication and profile existence on mount
   useEffect(() => {
     const checkAuthAndProfile = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session && session.user) {
-        const userTypeParam = searchParams.get("userType") as "student" | "faculty" | null;
-        const userTypeToCheck = userTypeParam || userType;
-        let profileExists = false;
-        if (userTypeToCheck === "faculty") {
-          const { data: faculty } = await supabase
-            .from("faculty_profiles")
-            .select("id")
-            .eq("email", session.user.email)
-            .single();
-          profileExists = !!faculty;
-        } else {
-          const { data: student } = await supabase
-            .from("student_profiles")
-            .select("id")
-            .eq("email", session.user.email)
-            .single();
-          profileExists = !!student;
+      try {
+        // Dynamic import to prevent build-time errors
+        const { supabase } = await import("@/lib/supabase");
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session && session.user) {
+          const userTypeParam = searchParams.get("userType") as "student" | "faculty" | null;
+          const userTypeToCheck = userTypeParam || userType;
+          let profileExists = false;
+          if (userTypeToCheck === "faculty") {
+            const { data: faculty } = await supabase
+              .from("faculty_profiles")
+              .select("id")
+              .eq("email", session.user.email)
+              .single();
+            profileExists = !!faculty;
+          } else {
+            const { data: student } = await supabase
+              .from("student_profiles")
+              .select("id")
+              .eq("email", session.user.email)
+              .single();
+            profileExists = !!student;
+          }
+          if (profileExists) {
+            // Redirect to dashboard
+            router.replace(userTypeToCheck === "faculty" ? "/faculty/dashboard" : "/student/dashboard");
+          }
         }
-        if (profileExists) {
-          // Redirect to dashboard
-          router.replace(userTypeToCheck === "faculty" ? "/faculty/dashboard" : "/student/dashboard");
-        }
+      } catch (error) {
+        console.error("Error checking auth and profile:", error);
+        // Continue with signup flow if there's an error
       }
     };
     checkAuthAndProfile();
@@ -83,6 +91,10 @@ export default function SignupPage() {
     setError("")
     setIsLoading(true)
     try {
+      // Dynamic import to prevent build-time errors
+      const { supabase } = await import("@/lib/supabase");
+      const { createStudentProfile, createFacultyProfile } = await import("@/lib/auth-service");
+      
       if (userType === "student") {
         if (!formData.class || !formData.section || !formData.username || !formData.email || !formData.password) {
           setError("All fields are required for students.")
