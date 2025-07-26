@@ -2,8 +2,6 @@
 
 // Force dynamic rendering to prevent build-time errors
 export const dynamic = 'force-dynamic'
-
-import dynamic from "next/dynamic";
 import {
   Chart as ChartJS,
   LineElement,
